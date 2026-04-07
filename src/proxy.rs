@@ -216,7 +216,8 @@ pub async fn handle_client(
     let media_tag = if is_media { "m" } else { "" };
 
     if target_ip.is_none() {
-        // DC not in config — try upstream proxies, then fall back to direct TCP.
+        // DC not in config — try WebSocket via fallback IP, then upstream
+        // proxies, then fall back to direct TCP.
         let reason = format!("DC{} not in --dc-ip config", dc_id);
         let fallback = match dc_fallback_ips.get(&dc_id) {
             Some(ip) => ip.clone(),
@@ -226,6 +227,50 @@ pub async fn handle_client(
             }
         };
 
+        // ── Step 5a: try WebSocket via fallback IP ────────────────────────
+        // Even for unconfigured DCs we can attempt a WebSocket connection
+        // using the hardcoded fallback IP and the ws_dc domain override
+        // (e.g. DC 203 → kws2.web.telegram.org).  This mirrors exactly what
+        // we do for configured DCs and is the most reliable path.
+        let ws_timeout = ws_timeout_for(dc_id, is_media);
+        let (ws_opt, all_redirects) =
+            connect_ws_for_dc(&fallback, ws_dc, is_media, skip_tls, ws_timeout).await;
+
+        if let Some(ws) = ws_opt {
+            clear_dc_cooldown(dc_id, is_media);
+            info!(
+                "[{}] DC{}{} {} → WS via {}",
+                label, dc_id, media_tag, reason, fallback
+            );
+            bridge_ws(
+                &label, reader, writer, ws, relay_init, ciphers, proto, dc_id, is_media,
+            )
+            .await;
+            return;
+        }
+
+        // WS failed — apply the same cooldown logic as for configured DCs.
+        if all_redirects {
+            blacklist_ws(dc_id, is_media);
+            warn!(
+                "[{}] DC{}{} WS cooldown {}s (all domains returned redirect)",
+                label,
+                dc_id,
+                media_tag,
+                WS_REDIRECT_COOLDOWN.as_secs()
+            );
+        } else {
+            set_dc_cooldown(dc_id, is_media);
+            info!(
+                "[{}] DC{}{} WS cooldown {}s",
+                label,
+                dc_id,
+                media_tag,
+                WS_FAIL_COOLDOWN.as_secs()
+            );
+        }
+
+        // ── Step 5b: try upstream MTProto proxies ─────────────────────────
         // Try each configured upstream MTProto proxy.
         for upstream in &config.mtproto_proxies {
             if upstream_in_cooldown(&upstream.host, upstream.port) {
@@ -258,11 +303,24 @@ pub async fn handle_client(
                         tg_enc: up_enc,
                         tg_dec: up_dec,
                     };
-                    bridge_mtproto_relay(
+                    let (_, bytes_down) = bridge_mtproto_relay(
                         &label, reader, writer, rem_reader, rem_writer, up_ciphers, dc_id,
                         is_media,
                     )
                     .await;
+                    // Zero downstream bytes means the upstream rejected the
+                    // connection at the application level.  Cooldown it so
+                    // the next retry falls through to TCP instead.
+                    if bytes_down == 0 {
+                        warn!(
+                            "[{}] upstream {}:{} returned no data, cooldown {}s",
+                            label,
+                            upstream.host,
+                            upstream.port,
+                            UPSTREAM_FAIL_COOLDOWN.as_secs()
+                        );
+                        set_upstream_cooldown(&upstream.host, upstream.port);
+                    }
                     return;
                 }
                 None => {
@@ -380,11 +438,26 @@ pub async fn handle_client(
                                 tg_enc: up_enc,
                                 tg_dec: up_dec,
                             };
-                            bridge_mtproto_relay(
+                            let (_, bytes_down) = bridge_mtproto_relay(
                                 &label, reader, writer, rem_reader, rem_writer, up_ciphers,
                                 dc_id, is_media,
                             )
                             .await;
+                            // Zero downstream bytes means the upstream proxy
+                            // closed the connection immediately without sending
+                            // any data (e.g. FakeTLS-only proxy, unsupported DC,
+                            // or cipher mismatch).  Apply a cooldown so the next
+                            // attempt from this client falls through to TCP.
+                            if bytes_down == 0 {
+                                warn!(
+                                    "[{}] upstream {}:{} returned no data, cooldown {}s",
+                                    label,
+                                    upstream.host,
+                                    upstream.port,
+                                    UPSTREAM_FAIL_COOLDOWN.as_secs()
+                                );
+                                set_upstream_cooldown(&upstream.host, upstream.port);
+                            }
                             return;
                         }
                         None => {
@@ -651,6 +724,14 @@ async fn connect_mtproto_upstream(
 ///
 /// `ciphers.tg_enc` / `ciphers.tg_dec` must already be set to the upstream
 /// session ciphers returned by [`connect_mtproto_upstream`].
+///
+/// Returns `(bytes_up, bytes_down)` — the total bytes forwarded in each
+/// direction.  `bytes_down == 0` is a strong signal that the upstream proxy
+/// rejected the connection at the application level (e.g. it only accepts
+/// Fake-TLS connections, or it does not route the requested DC).  Callers
+/// should apply an upstream cooldown in that case so the next connection
+/// attempt falls through to the direct-TCP fallback instead of hammering the
+/// same upstream indefinitely.
 async fn bridge_mtproto_relay(
     label: &str,
     reader: tokio::io::ReadHalf<TcpStream>,
@@ -660,7 +741,7 @@ async fn bridge_mtproto_relay(
     ciphers: ConnectionCiphers,
     dc: u32,
     is_media: bool,
-) {
+) -> (u64, u64) {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     let ConnectionCiphers {
@@ -743,6 +824,7 @@ async fn bridge_mtproto_relay(
         human_bytes(bytes_down),
         elapsed
     );
+    (bytes_up, bytes_down)
 }
 
 // ─── TCP fallback bridge ─────────────────────────────────────────────────────
