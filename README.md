@@ -161,7 +161,7 @@ TG_MTPROTO_PROXY="proxy.example.com:443:abcdef1234...,other.example.net:8888:dea
 
 > **⚠️ Secret format — no `dd` prefix!**
 >
-> Public MTProto proxies (e.g. from `@MTProxybot`) often display the secret
+> Public MTProto proxies often display the secret
 > with a `dd` prefix, e.g. `ddabcdef1234567890abcdef1234567890`.  That `dd`
 > prefix is **not** part of the secret — it's a protocol marker indicating the
 > "padded intermediate" transport.  **Strip the leading `dd` before passing the
