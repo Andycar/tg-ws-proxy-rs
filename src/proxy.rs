@@ -265,7 +265,7 @@ pub async fn handle_client(
                     label, dc_id, media_tag, reason, cf_domain
                 );
 
-                let (cf_ws_opt, _) =
+                let (cf_ws_opt, _all_redirects) =
                     connect_cf_ws_for_dc(dc_id, cf_domain, is_media, skip_tls, CF_CONNECT_TIMEOUT)
                         .await;
 
@@ -425,7 +425,7 @@ pub async fn handle_client(
                             label, dc_id, media_tag, cf_domain
                         );
 
-                        let (cf_ws_opt, _) = connect_cf_ws_for_dc(
+                        let (cf_ws_opt, _all_redirects) = connect_cf_ws_for_dc(
                             dc_id,
                             cf_domain,
                             is_media,

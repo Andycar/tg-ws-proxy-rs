@@ -18,7 +18,7 @@ default domain can stop working at any time.
 ## Setting up your own domain
 
 1. Add your domain to Cloudflare (either registered through them, or by
-   changing the NS servers:
+   changing the NS servers to Cloudflare's:
    <https://developers.cloudflare.com/dns/zone-setups/full-setup/setup/>).
 
 2. In **SSL/TLS → Overview** set the mode to **Flexible**.
