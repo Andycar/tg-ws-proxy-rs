@@ -199,14 +199,20 @@ as the primary path for DCs that have no `--dc-ip` configured.
 1. In **SSL/TLS → Overview** set mode to **Flexible**.
 2. In **DNS → Records** add these proxied (`🔶`) A records:
 
-   | Name    | IPv4 address      |
-   |---------|-------------------|
-   | `kws1`  | `149.154.175.50`  |
-   | `kws2`  | `149.154.167.51`  |
-   | `kws3`  | `149.154.175.100` |
-   | `kws4`  | `149.154.167.91`  |
-   | `kws5`  | `149.154.171.5`   |
-   | `kws203`| `91.105.192.100`  |
+   | Name      | IPv4 address      |
+   |-----------|-------------------|
+   | `kws1`    | `149.154.175.50`  |
+   | `kws1-1`  | `149.154.175.50`  |
+   | `kws2`    | `149.154.167.51`  |
+   | `kws2-1`  | `149.154.167.51`  |
+   | `kws3`    | `149.154.175.100` |
+   | `kws3-1`  | `149.154.175.100` |
+   | `kws4`    | `149.154.167.91`  |
+   | `kws4-1`  | `149.154.167.91`  |
+   | `kws5`    | `149.154.171.5`   |
+   | `kws5-1`  | `149.154.171.5`   |
+   | `kws203`  | `91.105.192.100`  |
+   | `kws203-1`| `91.105.192.100`  |
 
 See [docs/CfProxy.md](docs/CfProxy.md) for full instructions.
 
